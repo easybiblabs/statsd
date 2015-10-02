@@ -3,6 +3,7 @@ var dgram    = require('dgram')
   , events   = require('events')
   , logger = require('./lib/logger')
   , hashring = require('hashring')
+  , cluster = require('cluster')
   , configlib   = require('./lib/config');
 
 var packet   = new events.EventEmitter();
@@ -16,6 +17,32 @@ configlib.configFile(process.argv[2], function (conf, oldConfig) {
   var udp_version = config.udp_version
     ,       nodes = config.nodes;
   l = new logger.Logger(config.log || {});
+
+  var forkCount = config.forkCount;
+  if (forkCount === 'auto') {
+    forkCount = require('os').cpus().length;
+  }
+
+  var logPrefix = "[" + process.pid + "] ";
+  var log = function(msg, type) {
+    l.log(logPrefix + msg, type);
+  }
+
+
+  if (forkCount > 1 && cluster.isMaster) {
+    logPrefix += "[master] ";
+    log("forking " + forkCount + " childs");
+
+    for (var i = 0; i < forkCount; i++) {
+      cluster.fork();
+    }
+
+    cluster.on('exit', function(worker, code, signal) {
+      log('worker ' + worker.process.pid + ' died with exit code:' + code + " restarting", 'ERROR');
+      cluster.fork();
+    });
+    return;
+  }
 
   //load the node_ring object with the available nodes and a weight of 100
   // weight is currently arbitrary but the same for all
@@ -39,22 +66,32 @@ configlib.configFile(process.argv[2], function (conf, oldConfig) {
     // Convert the raw packet to a string (defaults to UTF8 encoding)
     var packet_data = msg.toString();
     // If the packet contains a \n then it contains multiple metrics
-    var metrics;
     if (packet_data.indexOf("\n") > -1) {
+      var metrics;
       metrics = packet_data.split("\n");
+      // Loop through the metrics and split on : to get mertric name for hashing
+      for (var midx in metrics) {
+        var current_metric = metrics[midx];
+        var bits = current_metric.split(':');
+        var key = bits.shift();
+        if (current_metric !== '') {
+          var new_msg = new Buffer(current_metric);
+          packet.emit('send', key, new_msg);
+        }
+      }
+
     } else {
       // metrics needs to be an array to fake it for single metric packets
-      metrics = [ packet_data ] ;
-    }
-
-    // Loop through the metrics and split on : to get mertric name for hashing
-    for (var midx in metrics) {
-      var bits = metrics[midx].toString().split(':');
+      var current_metric = packet_data;
+      var bits = current_metric.split(':');
       var key = bits.shift();
-      packet.emit('send', key, msg);
+      if (current_metric !== '') {
+        packet.emit('send', key, msg);
+      }
     }
   });
 
+  var client = dgram.createSocket(udp_version);
   // Listen for the send message, and process the metric key and msg
   packet.on('send', function(key, msg) {
     // retreives the destination for this key
@@ -62,15 +99,12 @@ configlib.configFile(process.argv[2], function (conf, oldConfig) {
 
     // break the retreived host to pass to the send function
     if (statsd_host === undefined) {
-      l.log('Warning: No backend statsd nodes available!');
+      log('Warning: No backend statsd nodes available!');
     } else {
       var host_config = statsd_host.split(':');
 
-      var client = dgram.createSocket(udp_version);
       // Send the mesg to the backend
-      client.send(msg, 0, msg.length, host_config[1], host_config[0], function(err, bytes) {
-        client.close();
-      });
+      client.send(msg, 0, msg.length, host_config[1], host_config[0]);
     }
   });
 
@@ -104,7 +138,7 @@ configlib.configFile(process.argv[2], function (conf, oldConfig) {
           node_status[node_id]++;
         }
         if (node_status[node_id] < 2) {
-          l.log('Removing node ' + node_id + ' from the ring.');
+          log('Removing node ' + node_id + ' from the ring.');
           ring.remove(node_id);
         }
       } else {
@@ -112,7 +146,7 @@ configlib.configFile(process.argv[2], function (conf, oldConfig) {
           if (node_status[node_id] > 0) {
             var new_server = {};
             new_server[node_id] = 100;
-            l.log('Adding node ' + node_id + ' to the ring.');
+            log('Adding node ' + node_id + ' to the ring.');
             ring.add(new_server);
           }
         }
@@ -127,11 +161,11 @@ configlib.configFile(process.argv[2], function (conf, oldConfig) {
           node_status[node_id]++;
         }
         if (node_status[node_id] < 2) {
-          l.log('Removing node ' + node_id + ' from the ring.');
+          log('Removing node ' + node_id + ' from the ring.');
           ring.remove(node_id);
         }
       } else {
-        l.log('Error during healthcheck on node ' + node_id + ' with ' + e.code);
+        log('Error during healthcheck on node ' + node_id + ' with ' + e.code);
       }
     });
   }
