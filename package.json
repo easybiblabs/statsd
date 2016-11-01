@@ -16,17 +16,17 @@
   "version": "0.7.2",
   "dependencies": {
     "statsd-librato-backend": "0.1.7",
-    "generic-pool": "2.2.0"
+    "generic-pool": "3.0.0"
   },
   "devDependencies": {
-    "nodeunit": "0.7.x",
-    "underscore": "1.4.x",
-    "temp": "0.4.x"
+    "nodeunit": "0.10.2",
+    "underscore": "1.8.3",
+    "temp": "0.8.3"
   },
   "optionalDependencies": {
     "node-syslog":"1.2.0",
-    "hashring":"3.1.0",
-    "winser": "=0.1.6"
+    "hashring":"3.2.0",
+    "winser": "1.0.2"
   },
   "engines": {
     "node" : ">=0.8"
