@@ -15,7 +15,7 @@
   },
   "version": "0.7.2",
   "dependencies": {
-    "statsd-librato-backend": "0.1.7",
+    "statsd-librato-backend": "2.0.3",
     "generic-pool": "2.2.0"
   },
   "devDependencies": {
